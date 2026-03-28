@@ -1,0 +1,574 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"mime/multipart"
+	"net/http"
+	"os"             // Untuk membuat folder
+	"path/filepath"  // Untuk memproses nama file
+	"strconv"
+	"strings"
+	"time"
+
+	"jentik_be/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+type DeteksiJentik struct {
+	IsRawan bool   `json:"is_rawan"`
+	Alasan  string `json:"alasan"`
+	Saran   string `json:"saran"`
+}
+
+// Struct untuk format balasan HeatMap
+type HeatMapResponse struct {
+	ID    uint    `json:"id"`
+	Lat   float64 `json:"lat"`
+	Lng   float64 `json:"lng"`
+	Level string  `json:"level"` // "bahaya" atau "warning"
+}
+
+// Struct untuk list laporan pending di Dashboard Admin
+type PendingReportResponse struct {
+	ID        uint      `json:"id"`
+	ImageURL  string    `json:"image_url"`
+	Lat       float64   `json:"lat"`
+	Lng       float64   `json:"lng"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Struct untuk menangkap request verifikasi dari Admin
+type VerifyRequest struct {
+	Status  string `json:"status" binding:"required"` // Harus diisi "accepted" atau "rejected"
+	Catatan string `json:"catatan"`                   // Opsional, misal: "Foto terlalu buram"
+}
+
+// Fungsi untuk mengirim gambar ke Gemini
+func AnalyzeImageWithGemini(file multipart.File, fileSize int64, mimeType string) (string, error) {
+	ctx := context.Background()
+	
+	// Masukkan API Key kamu di sini (idealnya menggunakan environment variable / .env)
+	apiKey := ""
+	
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+
+	// Kita gunakan model Flash karena cepat dan mendukung input gambar (vision)
+	model := client.GenerativeModel("gemini-2.5-flash")
+
+	// Baca file gambar ke dalam bentuk byte
+	imgData := make([]byte, fileSize)
+	_, err = file.Read(imgData)
+	if err != nil {
+		return "", err
+	}
+
+	// Prompt untuk mengarahkan Gemini bertindak sebagai detektor jentik
+	prompt := genai.Text("Kamu adalah asisten AI untuk mendeteksi area rawan jentik nyamuk DBD. Perhatikan gambar ini baik-baik. Apakah terdapat genangan air, barang bekas penampung air, atau lingkungan yang berpotensi menjadi tempat berkembang biak nyamuk? Balas dengan format JSON yang rapi: {\"is_rawan\": true/false, \"alasan\": \"penjelasan singkat maksimal 2 kalimat\", \"saran\": \"tindakan yang harus dilakukan\"}")
+
+	// Format data gambar untuk dikirim ke API
+	formatGambar := strings.TrimPrefix(mimeType, "image/")
+	imgPart := genai.ImageData(formatGambar, imgData)
+
+	// Kirim request ke Gemini
+	resp, err := model.GenerateContent(ctx, prompt, imgPart)
+	if err != nil {
+		return "", err
+	}
+
+	// Ekstrak teks balasan dari Gemini
+	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+		return fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0]), nil
+	}
+
+	return "", fmt.Errorf("tidak ada respon dari AI")
+}
+
+// --- STRUCT UNTUK REQUEST AUTH ---
+type RegisterRequest struct {
+	Nama     string `json:"nama" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=6"`
+	Role     string `json:"role"` // Opsional: user, kader, admin
+}
+
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+// --- FUNGSI PENDUKUNG ---
+
+// Secret key untuk JWT (Idealnya ditaruh di .env)
+var jwtSecret = []byte("rahasia_gdgoc_jentik_2026")
+
+// Hash password sebelum masuk database
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
+
+// Cek kecocokan password
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// Generate token JWT
+func GenerateToken(userID uint, role string) (string, error) {
+	// Isi payload dari token
+	claims := jwt.MapClaims{
+		"user_id": userID,
+		"role":    role,
+		"exp":     time.Now().Add(time.Hour * 72).Unix(), // Expire dalam 3 hari
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
+
+// --- MIDDLEWARE AUTENTIKASI ---
+
+// 1. Cek apakah request membawa token yang valid
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Ambil header Authorization (Format: "Bearer <token>")
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Akses ditolak. Token tidak ditemukan."})
+			return
+		}
+
+		// Hilangkan kata "Bearer " untuk mengambil token aslinya
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// Parsing dan validasi token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("metode enkripsi token tidak valid")
+			}
+			return jwtSecret, nil // jwtSecret adalah variabel global yang kita buat sebelumnya
+		})
+
+		if err != nil || !token.Valid {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token tidak valid atau sudah kedaluwarsa."})
+			return
+		}
+
+		// Ekstrak data (claims) dari dalam token
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if ok && token.Valid {
+			// Simpan user_id dan role ke dalam context Gin agar bisa dipakai di endpoint
+			c.Set("user_id", claims["user_id"])
+			c.Set("role", claims["role"])
+			c.Next() // Lanjut ke endpoint tujuan
+		} else {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Klaim token tidak valid."})
+			return
+		}
+	}
+}
+
+// 2. Cek apakah user memiliki Role yang sesuai (Kader/Admin)
+func RoleMiddleware(requiredRole string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists || role != requiredRole {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Akses ditolak. Endpoint ini khusus untuk " + requiredRole})
+			return
+		}
+		c.Next()
+	}
+}
+
+func main() {
+	// ==========================================
+	// 1. SETUP DATABASE
+	// ==========================================
+	dsn := "host=localhost user=postgres password=root dbname=jentik_db port=5432 sslmode=disable TimeZone=Asia/Jakarta"
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal("Gagal koneksi ke database:", err)
+	}
+
+	err = db.AutoMigrate(&models.User{}, &models.Report{}, &models.Intervention{})
+	if err != nil {
+		log.Fatal("Gagal migrasi:", err)
+	}
+	fmt.Println("✅ Database siap!")
+
+	// ==========================================
+	// 2. SETUP GIN ROUTER
+	// ==========================================
+	r := gin.Default()
+
+	r.Static("/uploads", "./uploads")
+
+	// Middleware sederhana untuk CORS (agar frontend bisa hit API beda port)
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
+	// Endpoint Test/Health Check
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "Welcome to GDGOC Jentik API!"})
+	})
+
+	// Grouping API versi 1
+	// Grouping API versi 1
+	v1 := r.Group("/api/v1")
+	{
+		// --- ROUTES UNTUK AUTENTIKASI ---
+		auth := v1.Group("/auth")
+		{
+			// Endpoint Register
+			auth.POST("/register", func(c *gin.Context) {
+				var req RegisterRequest
+				if err := c.ShouldBindJSON(&req); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+					return
+				}
+
+				// Hash password
+				hashedPassword, err := HashPassword(req.Password)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengenkripsi password"})
+					return
+				}
+
+				// Set default role jika kosong
+				role := models.RoleUser
+				if req.Role == "kader" {
+					role = models.RoleKader
+				} else if req.Role == "admin" {
+					role = models.RoleAdmin
+				}
+
+				// Buat user baru (lokasi dibuat null/kosong dulu sementara)
+				newUser := models.User{
+					Nama:     req.Nama,
+					Email:    req.Email,
+					Password: hashedPassword,
+					Role:     role,
+				}
+
+				if err := db.Omit("Lokasi").Create(&newUser).Error; err != nil {
+					// Kita tampilkan error aslinya juga agar ke depannya lebih mudah di-debug
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mendaftar: " + err.Error()})
+					return
+				}
+
+				c.JSON(http.StatusCreated, gin.H{"message": "Registrasi berhasil", "data": gin.H{"id": newUser.ID, "nama": newUser.Nama, "role": newUser.Role}})
+			})
+
+			// Endpoint Login
+			auth.POST("/login", func(c *gin.Context) {
+				var req LoginRequest
+				if err := c.ShouldBindJSON(&req); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+					return
+				}
+
+				var user models.User
+				// Cari user berdasarkan email
+				if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Email atau password salah"})
+					return
+				}
+
+				// Cek password
+				if !CheckPasswordHash(req.Password, user.Password) {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Email atau password salah"})
+					return
+				}
+
+				// Generate JWT Token
+				token, err := GenerateToken(user.ID, string(user.Role))
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat token"})
+					return
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"message": "Login berhasil",
+					"token":   token,
+					"role":    user.Role,
+				})
+			})
+		}
+		// --- ROUTES UNTUK USER UMUM ---
+		user := v1.Group("/user")
+		// user := v1.Group("/user", AuthMiddleware(), RoleMiddleware("user"))
+		{
+			// 1. HeatMap (Mendapatkan titik rawan)
+			user.GET("/heatmap", func(c *gin.Context) {
+				var heatmapData []HeatMapResponse
+
+				// Query ke tabel reports
+				// Kita ekstrak lokasi PostGIS menjadi angka lat dan lng
+				// Hanya ambil laporan dengan status 'accepted' (sudah diverifikasi Puskesmas)
+				err := db.Table("reports").
+					Select("id, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, 'bahaya' as level").
+					Where("status = ?", models.StatusAccepted).
+					Scan(&heatmapData).Error
+
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"status": "error",
+						"message": "Gagal mengambil data peta",
+					})
+					return
+				}
+
+				// Jika data kosong, pastikan frontend menerima array kosong, bukan null
+				if heatmapData == nil {
+					heatmapData = []HeatMapResponse{}
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"status": "success",
+					"message": "Data heatmap berhasil diambil",
+					"data": heatmapData,
+				})
+			})
+
+			// 2. Scan Gambar (Nanti dihubungkan ke Gemini)
+			user.POST("/scan", func(c *gin.Context) {
+				// A. Ambil koordinat dari request
+				latStr := c.PostForm("lat")
+				lngStr := c.PostForm("lng")
+
+				if latStr == "" || lngStr == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Koordinat Latitude dan Longitude wajib dikirim"})
+					return
+				}
+				lat, _ := strconv.ParseFloat(latStr, 64)
+				lng, _ := strconv.ParseFloat(lngStr, 64)
+
+				// B. Ambil dan validasi file gambar
+				fileHeader, err := c.FormFile("image")
+				if err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Gambar tidak ditemukan dalam request"})
+					return
+				}
+
+				mimeType := fileHeader.Header.Get("Content-Type")
+				if !strings.HasPrefix(mimeType, "image/") {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Format file tidak didukung. Harap unggah gambar."})
+					return
+				}
+
+				// C. Simpan gambar ke server lokal
+				// Buat folder "uploads" jika belum ada
+				os.MkdirAll("uploads", os.ModePerm) 
+				
+				// Buat nama file (idealnya pakai timestamp agar unik, ini contoh sederhana)
+				fileName := filepath.Base(fileHeader.Filename)
+				imageURL := "/uploads/" + fileName // Path ini yang akan disimpan ke database
+				
+				if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar di server"})
+					return
+				}
+
+				// D. Buka file untuk dianalisis Gemini
+				file, err := fileHeader.Open()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memproses file gambar"})
+					return
+				}
+				defer file.Close()
+
+				// E. Panggil Gemini
+				aiResponse, err := AnalyzeImageWithGemini(file, fileHeader.Size, mimeType)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + err.Error()})
+					return
+				}
+
+				// F. Parsing balasan AI
+				cleanString := strings.ReplaceAll(aiResponse, "```json", "")
+				cleanString = strings.ReplaceAll(cleanString, "```", "")
+				cleanString = strings.TrimSpace(cleanString)
+
+				var hasilDeteksi DeteksiJentik
+				err = json.Unmarshal([]byte(cleanString), &hasilDeteksi)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Format AI tidak valid", "raw": aiResponse})
+					return
+				}
+
+				// G. Logika Database: Jika Rawan, masukkan sebagai Pending Report
+				pesanTambahan := ""
+				if hasilDeteksi.IsRawan {
+					// Kita hardcode user_id = 1 sementara (karena belum ada fitur login JWT)
+					userIDFloat, _ := c.Get("user_id") // JWT menyimpan angka sebagai float64
+					userID := uint(userIDFloat.(float64))
+					
+					query := `
+						INSERT INTO reports (user_id, jenis_laporan, image_url, status, lokasi, created_at, updated_at) 
+						VALUES (?, 'jentik', ?, 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
+					`
+					err = db.Exec(query, userID, imageURL, lng, lat).Error
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan ke database: " + err.Error()})
+						return
+					}
+					pesanTambahan = " Gambar terindikasi rawan dan telah dibuatkan laporan (Menunggu verifikasi Admin/Puskesmas)."
+				} else {
+					pesanTambahan = " Lingkungan terdeteksi aman."
+				}
+
+				// H. Kirim balasan ke Frontend
+				c.JSON(http.StatusOK, gin.H{
+					"status":  "success",
+					"message": "Analisis selesai." + pesanTambahan,
+					"data":    hasilDeteksi, 
+				})
+			})
+
+			// 3. Cek Jarak Rumah
+			user.GET("/check-distance", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{
+					"status": "success",
+					"jarak_meter": 50,
+					"kategori": "bahaya",
+					"message": "Rumah Anda berada di radius 50m dari titik jentik aktif!",
+				})
+			})
+
+			// 4. Report Daerah Rawan
+			user.POST("/reports", func(c *gin.Context) {
+				c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Laporan berhasil dikirim, menunggu verifikasi."})
+			})
+		}
+
+		// --- ROUTES UNTUK KADER ---
+		kader := v1.Group("/kader")
+		{
+			// 1. Smart Camera (Upload laporan kader)
+			kader.POST("/reports", func(c *gin.Context) {
+				c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Laporan kader terkirim dengan GPS lock."})
+			})
+
+			// 2. Riwayat Laporan Kader
+			kader.GET("/history", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"status": "success", "data": []string{"Laporan 1 - Diterima", "Laporan 2 - Pending"}})
+			})
+
+			// 3. Peta Blank Spot (Target navigasi)
+			kader.GET("/blank-spots", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"status": "success", "data": "List koordinat area abu-abu"})
+			})
+
+			// 4. Pelaporan Suspek Darurat (DBD)
+			kader.POST("/emergency", func(c *gin.Context) {
+				c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Peringatan darurat telah dikirim ke Puskesmas!"})
+			})
+		}
+
+		// --- ROUTES UNTUK PUSKESMAS (ADMIN) ---
+		admin := v1.Group("/admin", AuthMiddleware(), RoleMiddleware("admin"))
+		{
+			// 1. Get Laporan Pending untuk diverifikasi
+			admin.GET("/reports/pending", func(c *gin.Context) {
+				var pendingReports []PendingReportResponse
+
+				// Ambil data report dengan status 'pending', ekstrak koordinat PostGIS-nya
+				err := db.Table("reports").
+					Select("id, image_url, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
+					Where("status = ?", models.StatusPending).
+					Order("created_at DESC"). // Urutkan dari yang terbaru
+					Scan(&pendingReports).Error
+
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data laporan pending"})
+					return
+				}
+
+				if pendingReports == nil {
+					pendingReports = []PendingReportResponse{}
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"status":  "success",
+					"message": "Data laporan pending berhasil diambil",
+					"data":    pendingReports,
+				})
+			})
+
+			// 2. Verifikasi Laporan (Terima/Tolak)
+			admin.PUT("/reports/:id/verify", func(c *gin.Context) {
+				// Ambil ID report dari URL (misal: /api/v1/admin/reports/1/verify)
+				reportID := c.Param("id")
+
+				// Parsing body JSON dari request frontend
+				var req VerifyRequest
+				if err := c.ShouldBindJSON(&req); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Format request tidak valid. Pastikan mengirim JSON {status, catatan}"})
+					return
+				}
+
+				// Validasi status hanya boleh 'accepted' atau 'rejected'
+				if req.Status != string(models.StatusAccepted) && req.Status != string(models.StatusRejected) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Status hanya boleh 'accepted' atau 'rejected'"})
+					return
+				}
+
+				// Lakukan update ke database
+				err := db.Model(&models.Report{}).
+					Where("id = ?", reportID).
+					Updates(map[string]interface{}{
+						"status":        req.Status,
+						"catatan_admin": req.Catatan,
+					}).Error
+
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memverifikasi laporan"})
+					return
+				}
+
+				pesan := "Laporan berhasil ditolak."
+				if req.Status == string(models.StatusAccepted) {
+					pesan = "Laporan berhasil diterima dan sekarang muncul di HeatMap!"
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"status":  "success",
+					"message": pesan,
+				})
+			})
+
+			// 3. Pencatatan Intervensi (Fogging/Abate) - Biarkan dummy dulu
+			admin.POST("/interventions", func(c *gin.Context) {
+				c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Tindakan dicatat."})
+			})
+		}
+	}
+
+	// ==========================================
+	// 3. JALANKAN SERVER
+	// ==========================================
+	fmt.Println("🚀 Server berjalan di http://localhost:8080")
+	r.Run(":8080")
+}
