@@ -23,7 +23,7 @@ jobs:
     - name: 3. Pindahkan Binary ke Folder Production
       run: |
         # Memindahkan hasil build ke folder utama aplikasi
-        sudo cp jentik_api /var/www/jentik-backend/jentik_api
+        sudo cp jentik_api /var/www/jentik/jentik_api
         
     - name: 4. Restart Service API
       run: |
