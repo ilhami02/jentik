@@ -1,0 +1,30 @@
+name: CI/CD Jentik API
+
+# Menjalankan aksi ini setiap kali ada push ke branch 'main'
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    # Penting: Ini memberitahu GitHub untuk mengeksekusi tugas di server kamu, bukan di cloud GitHub
+    runs-on: self-hosted
+
+    steps:
+    - name: 1. Checkout Kode
+      uses: actions/checkout@v4
+
+    - name: 2. Download Dependencies & Build Aplikasi
+      run: |
+        go mod tidy
+        go build -o jentik_api .
+
+    - name: 3. Pindahkan Binary ke Folder Production
+      run: |
+        # Memindahkan hasil build ke folder utama aplikasi
+        sudo cp jentik_api /var/www/jentik-backend/jentik_api
+        
+    - name: 4. Restart Service API
+      run: |
+        sudo systemctl restart jentik.service
