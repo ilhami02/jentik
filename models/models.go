@@ -34,7 +34,7 @@ type User struct {
 
 type Report struct {
 	ID            uint           `gorm:"primaryKey"`
-	UserID        uint           `gorm:"not null"`
+	UserID        *uint          `gorm:"default:null"`
 	JenisLaporan  string         `gorm:"type:varchar(50);not null"`
 	ImageURL      string         `gorm:"type:text;not null"`
 	CatatanAdmin  string         `gorm:"type:text"`

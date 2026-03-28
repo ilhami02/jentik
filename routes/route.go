@@ -37,6 +37,8 @@ func SetupRouter() *gin.Engine {
 			auth.POST("/login", controllers.Login)
 		}
 
+		v1.POST("/scan", controllers.PublicScanImage)
+
 		user := v1.Group("/user", middlewares.AuthMiddleware())
 		{
 			user.GET("/heatmap", controllers.GetHeatmap)

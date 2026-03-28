@@ -119,6 +119,70 @@ func ScanImage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Analisis selesai." + pesanTambahan, "data": hasilDeteksi})
 }
 
+func PublicScanImage(c *gin.Context) {
+	latStr := c.PostForm("lat")
+	lngStr := c.PostForm("lng")
+
+	if latStr == "" || lngStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Koordinat Latitude dan Longitude wajib dikirim"})
+		return
+	}
+	lat, _ := strconv.ParseFloat(latStr, 64)
+	lng, _ := strconv.ParseFloat(lngStr, 64)
+
+	fileHeader, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gambar tidak ditemukan"})
+		return
+	}
+
+	mimeType := fileHeader.Header.Get("Content-Type")
+	if !strings.HasPrefix(mimeType, "image/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Format file tidak didukung."})
+		return
+	}
+
+	os.MkdirAll("uploads", os.ModePerm)
+	fileName := filepath.Base(fileHeader.Filename)
+	imageURL := "/uploads/" + fileName
+
+	if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+		return
+	}
+
+	file, _ := fileHeader.Open()
+	defer file.Close()
+
+	aiResponse, err := utils.AnalyzeImageWithGemini(file, fileHeader.Size, mimeType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + err.Error()})
+		return
+	}
+
+	cleanString := strings.ReplaceAll(aiResponse, "```json", "")
+	cleanString = strings.ReplaceAll(cleanString, "```", "")
+	cleanString = strings.TrimSpace(cleanString)
+
+	var hasilDeteksi DeteksiJentik
+	if err := json.Unmarshal([]byte(cleanString), &hasilDeteksi); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Format AI tidak valid"})
+		return
+	}
+
+	pesanTambahan := " Lingkungan terdeteksi aman."
+	if hasilDeteksi.IsRawan {
+		query := `INSERT INTO reports (user_id, jenis_laporan, image_url, status, lokasi, created_at, updated_at) VALUES (NULL, 'jentik', ?, 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())`
+		if err := config.DB.Exec(query, imageURL, lng, lat).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan"})
+			return
+		}
+		pesanTambahan = " Gambar terindikasi rawan dan telah dibuatkan laporan."
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Analisis selesai." + pesanTambahan, "data": hasilDeteksi})
+}
+
 func CheckDistance(c *gin.Context) {
 	userIDFloat, exists := c.Get("user_id")
 	if !exists {
