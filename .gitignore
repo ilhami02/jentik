@@ -1,1 +1,6 @@
 .env
+uploads/
+tmp/
+
+jentik_api
+jentik_api.exe
