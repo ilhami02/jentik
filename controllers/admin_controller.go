@@ -2,26 +2,12 @@ package controllers
 
 import (
 	"net/http"
-	"time"
 
 	"jentik_be/config"
 	"jentik_be/models"
 
 	"github.com/gin-gonic/gin"
 )
-
-type PendingReportResponse struct {
-	ID        uint      `json:"id"`
-	ImageURL  string    `json:"image_url"`
-	Lat       float64   `json:"lat"`
-	Lng       float64   `json:"lng"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type VerifyRequest struct {
-	Status  string `json:"status" binding:"required"`
-	Catatan string `json:"catatan"`
-}
 
 func GetPendingReports(c *gin.Context) {
 	var pendingReports []PendingReportResponse

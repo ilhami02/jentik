@@ -5,23 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"jentik_be/config"
 
 	"github.com/gin-gonic/gin"
 )
-
-type ReportHistoryResponse struct {
-	ID           uint      `json:"id"`
-	JenisLaporan string    `json:"jenis_laporan"`
-	ImageURL     string    `json:"image_url"`
-	Status       string    `json:"status"`
-	CatatanAdmin string    `json:"catatan_admin"`
-	Lat          float64   `json:"lat"`
-	Lng          float64   `json:"lng"`
-	CreatedAt    time.Time `json:"created_at"`
-}
 
 func KaderGetHistory(c *gin.Context) {
 	userIDFloat, _ := c.Get("user_id")
@@ -89,7 +79,60 @@ func KaderReportEmergency(c *gin.Context) {
 }
 
 func KaderSubmitReport(c *gin.Context) {
-	c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Laporan jentik kader terkirim dengan GPS lock."})
+	userIDFloat, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID tidak valid"})
+		return
+	}
+	userID := uint(userIDFloat.(float64))
+
+	var req SubmitReportRequest
+	if err := c.ShouldBind(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Format request tidak valid. Pastikan mengirim lat, lng, dan deskripsi."})
+		return
+	}
+
+	// Validasi koordinat - pastikan tidak NULL
+	// Note: koordinat 0,0 adalah valid (Null Island), jadi kami tidak cek nilai == 0
+
+	// Handle file gambar
+	fileHeader, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gambar wajib dikirim"})
+		return
+	}
+
+	mimeType := fileHeader.Header.Get("Content-Type")
+	if !strings.HasPrefix(mimeType, "image/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Format file harus berupa gambar (jpg, png, dll)"})
+		return
+	}
+
+	// Simpan file dengan nama unik
+	os.MkdirAll("uploads", os.ModePerm)
+	fileName := "kader_" + strconv.Itoa(int(userID)) + "_" + strconv.FormatInt(time.Now().Unix(), 10) + filepath.Ext(fileHeader.Filename)
+	imageURL := "/uploads/" + fileName
+
+	if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+		return
+	}
+
+	// Insert laporan ke database
+	query := `
+		INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, status, lokasi, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
+	`
+
+	if err := config.DB.Exec(query, userID, "jentik", imageURL, req.Deskripsi, "pending", req.Lng, req.Lat).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":  "success",
+		"message": "Laporan jentik dari kader berhasil dikirim dengan GPS lock! Admin akan memverifikasi dalam waktu singkat.",
+	})
 }
 
 func KaderGetBlankSpots(c *gin.Context) {

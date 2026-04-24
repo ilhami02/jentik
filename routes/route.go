@@ -38,16 +38,15 @@ func SetupRouter() *gin.Engine {
 		}
 
 		v1.POST("/scan", controllers.PublicScanImage)
+		v1.GET("/heatmap", controllers.GetHeatmap)
+		v1.GET("/check-distance", controllers.PublicCheckDistance)
 
 		user := v1.Group("/user", middlewares.AuthMiddleware())
 		{
-			user.GET("/heatmap", controllers.GetHeatmap)
 			user.POST("/scan", controllers.ScanImage)
 			user.GET("/check-distance", controllers.CheckDistance)
 			user.PUT("/location", controllers.UpdateLocation)
-			user.POST("/reports", func(c *gin.Context) {
-				c.JSON(http.StatusCreated, gin.H{"status": "success", "message": "Laporan berhasil dikirim, menunggu verifikasi."})
-			})
+			user.POST("/reports", controllers.UserSubmitReport)
 		}
 
 		kader := v1.Group("/kader", middlewares.AuthMiddleware(), middlewares.RoleMiddleware("kader"))

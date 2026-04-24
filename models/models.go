@@ -37,6 +37,7 @@ type Report struct {
 	UserID        *uint          `gorm:"default:null"`
 	JenisLaporan  string         `gorm:"type:varchar(50);not null"`
 	ImageURL      string         `gorm:"type:text;not null"`
+	Deskripsi     string         `gorm:"type:text"`
 	CatatanAdmin  string         `gorm:"type:text"`
 	Status        StatusLaporan  `gorm:"type:varchar(20);default:'pending'"`
 	Lokasi        string         `gorm:"type:geometry(Point, 4326);not null" json:"-"`
