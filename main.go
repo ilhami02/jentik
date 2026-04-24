@@ -6,10 +6,13 @@ import (
 
 	"jentik_be/config"
 	"jentik_be/routes"
+	"github.com/gin-contrib/cors"
 )
 
 func main() {
 	config.ConnectDatabase()
+
+	r.Use(cors.Default())
 
 	r := routes.SetupRouter()
 
