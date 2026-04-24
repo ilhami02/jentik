@@ -20,7 +20,7 @@ func KaderGetHistory(c *gin.Context) {
 	var history []ReportHistoryResponse
 
 	err := config.DB.Table("reports").
-		Select("id, jenis_laporan, image_url, status, catatan_admin, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
+		Select("id, jenis_laporan, image_url, tingkat_bahaya, status, catatan_admin, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
 		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Scan(&history).Error
@@ -64,8 +64,8 @@ func KaderReportEmergency(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO reports (user_id, jenis_laporan, image_url, status, lokasi, created_at, updated_at) 
-		VALUES (?, 'suspek_dbd', ?, 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
+		INSERT INTO reports (user_id, jenis_laporan, image_url, tingkat_bahaya, status, lokasi, created_at, updated_at) 
+		VALUES (?, 'suspek_dbd', ?, 'rawan', 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
 	`
 	if err := config.DB.Exec(query, userID, imageURL, lng, lat).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengirim laporan darurat: " + err.Error()})
@@ -120,11 +120,11 @@ func KaderSubmitReport(c *gin.Context) {
 
 	// Insert laporan ke database
 	query := `
-		INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, status, lokasi, created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
+		INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, tingkat_bahaya, status, lokasi, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
 	`
 
-	if err := config.DB.Exec(query, userID, "jentik", imageURL, req.Deskripsi, "pending", req.Lng, req.Lat).Error; err != nil {
+	if err := config.DB.Exec(query, userID, "jentik", imageURL, req.Deskripsi, req.TingkatBahaya, "pending", req.Lng, req.Lat).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan: " + err.Error()})
 		return
 	}

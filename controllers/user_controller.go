@@ -19,7 +19,7 @@ import (
 func GetHeatmap(c *gin.Context) {
 	var heatmapData []HeatMapResponse
 	err := config.DB.Table("reports").
-	Select("id, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, 'bahaya' as level").
+	Select("id, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, tingkat_bahaya as level").
 	Where("status = ?", models.StatusAccepted).
 	Scan(&heatmapData).Error
 
@@ -91,7 +91,8 @@ func ScanImage(c *gin.Context) {
 		userIDFloat, _ := c.Get("user_id")
 		userID := uint(userIDFloat.(float64))
 
-		query := `INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, status, lokasi, created_at, updated_at) VALUES (?, 'jentik', ?, '', 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())`
+		// Jika rawan dari AI, tingkat bahaya adalah "rawan"
+		query := `INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, tingkat_bahaya, status, lokasi, created_at, updated_at) VALUES (?, 'jentik', ?, '', 'rawan', 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())`
 		if err := config.DB.Exec(query, userID, imageURL, lng, lat).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan"})
 			return
@@ -155,7 +156,8 @@ func PublicScanImage(c *gin.Context) {
 
 	pesanTambahan := " Lingkungan terdeteksi aman."
 	if hasilDeteksi.IsRawan {
-		query := `INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, status, lokasi, created_at, updated_at) VALUES (NULL, 'jentik', ?, '', 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())`
+		// Jika rawan dari AI, tingkat bahaya adalah "rawan"
+		query := `INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, tingkat_bahaya, status, lokasi, created_at, updated_at) VALUES (NULL, 'jentik', ?, '', 'rawan', 'pending', ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())`
 		if err := config.DB.Exec(query, imageURL, lng, lat).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan"})
 			return
@@ -359,11 +361,11 @@ func UserSubmitReport(c *gin.Context) {
 
 	// Insert laporan ke database
 	query := `
-		INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, status, lokasi, created_at, updated_at) 
-		VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
+		INSERT INTO reports (user_id, jenis_laporan, image_url, deskripsi, tingkat_bahaya, status, lokasi, created_at, updated_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), NOW(), NOW())
 	`
 
-	if err := config.DB.Exec(query, userID, "jentik", imageURL, req.Deskripsi, "pending", req.Lng, req.Lat).Error; err != nil {
+	if err := config.DB.Exec(query, userID, "jentik", imageURL, req.Deskripsi, req.TingkatBahaya, "pending", req.Lng, req.Lat).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan laporan: " + err.Error()})
 		return
 	}

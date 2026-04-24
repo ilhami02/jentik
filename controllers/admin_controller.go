@@ -13,7 +13,7 @@ func GetPendingReports(c *gin.Context) {
 	var pendingReports []PendingReportResponse
 
 	err := config.DB.Table("reports").
-		Select("id, image_url, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
+		Select("id, image_url, tingkat_bahaya, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
 		Where("status = ?", models.StatusPending).
 		Order("created_at DESC").
 		Scan(&pendingReports).Error

@@ -21,28 +21,31 @@ type UpdateLocationRequest struct {
 }
 
 type SubmitReportRequest struct {
-	Lat       float64 `form:"lat" binding:"required"`
-	Lng       float64 `form:"lng" binding:"required"`
-	Deskripsi string  `form:"deskripsi"`
+	Lat           float64 `form:"lat" binding:"required"`
+	Lng           float64 `form:"lng" binding:"required"`
+	Deskripsi     string  `form:"deskripsi"`
+	TingkatBahaya string  `form:"tingkat_bahaya" binding:"required,oneof=aman warning rawan"`
 }
 
 type ReportHistoryResponse struct {
-	ID           uint      `json:"id"`
-	JenisLaporan string    `json:"jenis_laporan"`
-	ImageURL     string    `json:"image_url"`
-	Status       string    `json:"status"`
-	CatatanAdmin string    `json:"catatan_admin"`
-	Lat          float64   `json:"lat"`
-	Lng          float64   `json:"lng"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	JenisLaporan  string    `json:"jenis_laporan"`
+	ImageURL      string    `json:"image_url"`
+	TingkatBahaya string    `json:"tingkat_bahaya"`
+	Status        string    `json:"status"`
+	CatatanAdmin  string    `json:"catatan_admin"`
+	Lat           float64   `json:"lat"`
+	Lng           float64   `json:"lng"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type PendingReportResponse struct {
-	ID        uint      `json:"id"`
-	ImageURL  string    `json:"image_url"`
-	Lat       float64   `json:"lat"`
-	Lng       float64   `json:"lng"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	ImageURL      string    `json:"image_url"`
+	TingkatBahaya string    `json:"tingkat_bahaya"`
+	Lat           float64   `json:"lat"`
+	Lng           float64   `json:"lng"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type VerifyRequest struct {

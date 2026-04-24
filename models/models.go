@@ -20,6 +20,13 @@ const (
 	StatusResolved StatusLaporan = "resolved" 
 )
 
+type TingkatBahaya string
+const (
+	TingkatAman    TingkatBahaya = "aman"
+	TingkatWarning TingkatBahaya = "warning"
+	TingkatRawan   TingkatBahaya = "rawan"
+)
+
 type User struct {
 	ID        uint           `gorm:"primaryKey"`
 	Nama      string         `gorm:"size:100;not null"`
@@ -38,6 +45,7 @@ type Report struct {
 	JenisLaporan  string         `gorm:"type:varchar(50);not null"`
 	ImageURL      string         `gorm:"type:text;not null"`
 	Deskripsi     string         `gorm:"type:text"`
+	TingkatBahaya TingkatBahaya  `gorm:"type:varchar(20);default:'aman'"`
 	CatatanAdmin  string         `gorm:"type:text"`
 	Status        StatusLaporan  `gorm:"type:varchar(20);default:'pending'"`
 	Lokasi        string         `gorm:"type:geometry(Point, 4326);not null" json:"-"`
