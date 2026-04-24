@@ -136,5 +136,40 @@ func KaderSubmitReport(c *gin.Context) {
 }
 
 func KaderGetBlankSpots(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "success", "data": "List koordinat area abu-abu masih dalam pengembangan"})
+	var blankSpots []BlankSpotResponse
+
+	err := config.DB.Table("reports").
+		Select("id, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, tingkat_bahaya").
+		Where("status = ?", "accepted").
+		Order("created_at DESC").
+		Scan(&blankSpots).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data blank spots"})
+		return
+	}
+
+	// Assign warna berdasarkan tingkat bahaya
+	// for i := range blankSpots {
+	// 	switch blankSpots[i].TingkatBahaya {
+	// 	case "aman":
+	// 		blankSpots[i].Color = "hijau"
+	// 	case "warning":
+	// 		blankSpots[i].Color = "kuning"
+	// 	case "rawan":
+	// 		blankSpots[i].Color = "merah"
+	// 	default:
+	// 		blankSpots[i].Color = "abu-abu"
+	// 	}
+	// }
+
+	if blankSpots == nil {
+		blankSpots = []BlankSpotResponse{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Data lokasi area dengan tingkat bahaya berhasil diambil",
+		"data":    blankSpots,
+	})
 }

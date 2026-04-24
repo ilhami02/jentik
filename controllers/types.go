@@ -48,6 +48,14 @@ type PendingReportResponse struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+type BlankSpotResponse struct {
+	ID            uint    `json:"id"`
+	Lat           float64 `json:"lat"`
+	Lng           float64 `json:"lng"`
+	TingkatBahaya string  `json:"tingkat_bahaya"`
+	// Color         string  `json:"color"` // "hijau", "kuning", "merah"
+}
+
 type VerifyRequest struct {
 	Status  string `json:"status" binding:"required"`
 	Catatan string `json:"catatan"`
