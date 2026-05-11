@@ -375,3 +375,30 @@ func UserSubmitReport(c *gin.Context) {
 		"message": "Laporan jentik berhasil dikirim! Admin akan memverifikasi dalam waktu singkat.",
 	})
 }
+
+func UserGetHistory(c *gin.Context) {
+	userIDFloat, _ := c.Get("user_id")
+	userID := uint(userIDFloat.(float64))
+
+	var history []Reports
+
+	err := config.DB.Table("reports").
+		Select("id, jenis_laporan, image_url, tingkat_bahaya, status, catatan_admin, ST_Y(lokasi::geometry) as lat, ST_X(lokasi::geometry) as lng, created_at").
+		Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Scan(&history).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil riwayat laporan"})
+		return
+	}
+
+	if history == nil {
+		history = []Reports{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   history,
+	})
+}

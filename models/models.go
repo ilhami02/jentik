@@ -62,3 +62,4 @@ type Intervention struct {
 	Tanggal          time.Time `gorm:"not null"`
 	CreatedAt        time.Time
 }
+

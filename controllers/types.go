@@ -27,8 +27,9 @@ type SubmitReportRequest struct {
 	TingkatBahaya string  `form:"tingkat_bahaya" binding:"required,oneof=aman warning rawan"`
 }
 
-type ReportHistoryResponse struct {
+type Reports struct {
 	ID            uint      `json:"id"`
+	UserID		  uint      `json:"user_id"`
 	JenisLaporan  string    `json:"jenis_laporan"`
 	ImageURL      string    `json:"image_url"`
 	TingkatBahaya string    `json:"tingkat_bahaya"`
@@ -37,6 +38,14 @@ type ReportHistoryResponse struct {
 	Lat           float64   `json:"lat"`
 	Lng           float64   `json:"lng"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+type Intervention struct {
+	ReportID      uint    `json:"report_id"`
+	JenisTindakan string  `json:"jenis_tindakan"` // misal: "Kirim Ambulans", "Fogging Darurat"
+	Lat           float64 `json:"lat"`
+	Lng           float64 `json:"lng"`
+	RadiusArea    float64 `json:"radius_area"`
 }
 
 type PendingReportResponse struct {

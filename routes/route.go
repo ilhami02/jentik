@@ -60,6 +60,7 @@ func SetupRouter() *gin.Engine {
 			user.GET("/check-distance", controllers.CheckDistance)
 			user.PUT("/location", controllers.UpdateLocation)
 			user.POST("/reports", controllers.UserSubmitReport)
+			user.GET("/history", controllers.UserGetHistory)
 		}
 
 		kader := v1.Group("/kader", middlewares.AuthMiddleware(), middlewares.RoleMiddleware("kader"))
@@ -74,6 +75,8 @@ func SetupRouter() *gin.Engine {
 		{
 			admin.GET("/reports/pending", controllers.GetPendingReports)
 			admin.PUT("/reports/:id/verify", controllers.VerifyReport)
+			admin.GET("/notifications/stream", controllers.StreamNotifications)
+			// new EventSource('https://gdgoc.skyibe.my.id/api/v1/admin/stream?token=' + token)
 			admin.POST("/interventions", controllers.CreateIntervention)
 		}
 	}
