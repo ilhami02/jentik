@@ -78,6 +78,13 @@ func SetupRouter() *gin.Engine {
 			admin.GET("/notifications/stream", controllers.StreamNotifications)
 			// new EventSource('https://gdgoc.skyibe.my.id/api/v1/admin/stream?token=' + token)
 			admin.POST("/interventions", controllers.CreateIntervention)
+
+			// User Management
+			admin.GET("/users", controllers.AdminGetUsers)
+			admin.GET("/users/:id", controllers.AdminGetUserByID)
+			admin.POST("/users", controllers.AdminCreateUser)
+			admin.PUT("/users/:id/role", controllers.AdminUpdateUserRole)
+			admin.DELETE("/users/:id", controllers.AdminDeleteUser)
 		}
 	}
 
