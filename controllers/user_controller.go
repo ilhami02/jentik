@@ -59,20 +59,50 @@ func ScanImage(c *gin.Context) {
 	}
 
 	os.MkdirAll("uploads", os.ModePerm)
-	fileName := filepath.Base(fileHeader.Filename)
+	origExt := filepath.Ext(fileHeader.Filename)
+	baseName := strings.TrimSuffix(filepath.Base(fileHeader.Filename), origExt)
+	fileName := baseName + "_" + strconv.FormatInt(time.Now().Unix(), 10) + ".jpg"
 	imageURL := "/uploads/" + fileName
 
-	if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal membuka gambar"})
 		return
 	}
 
-	file, _ := fileHeader.Open()
-	defer file.Close()
+	compressedPath := "uploads/" + fileName
+	var aiResponse string
+	var aiErr error
 
-	aiResponse, err := utils.AnalyzeImageWithGemini(file, fileHeader.Size, mimeType)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + err.Error()})
+	if err := utils.CompressAndSaveImage(file, compressedPath, 75); err == nil {
+		file.Close()
+		compFile, err := os.Open(compressedPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuka gambar terkompresi"})
+			return
+		}
+		defer compFile.Close()
+		stat, _ := compFile.Stat()
+		aiResponse, aiErr = utils.AnalyzeImageWithGemini(compFile, stat.Size(), "image/jpeg")
+	} else {
+		file.Close()
+		fileName = baseName + "_" + strconv.FormatInt(time.Now().Unix(), 10) + origExt
+		imageURL = "/uploads/" + fileName
+		if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+			return
+		}
+		origFile, err := fileHeader.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuka gambar"})
+			return
+		}
+		defer origFile.Close()
+		aiResponse, aiErr = utils.AnalyzeImageWithGemini(origFile, fileHeader.Size, mimeType)
+	}
+
+	if aiErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + aiErr.Error()})
 		return
 	}
 
@@ -127,20 +157,50 @@ func PublicScanImage(c *gin.Context) {
 	}
 
 	os.MkdirAll("uploads", os.ModePerm)
-	fileName := filepath.Base(fileHeader.Filename)
+	origExt := filepath.Ext(fileHeader.Filename)
+	baseName := strings.TrimSuffix(filepath.Base(fileHeader.Filename), origExt)
+	fileName := baseName + "_" + strconv.FormatInt(time.Now().Unix(), 10) + ".jpg"
 	imageURL := "/uploads/" + fileName
 
-	if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gagal membuka gambar"})
 		return
 	}
 
-	file, _ := fileHeader.Open()
-	defer file.Close()
+	compressedPath := "uploads/" + fileName
+	var aiResponse string
+	var aiErr error
 
-	aiResponse, err := utils.AnalyzeImageWithGemini(file, fileHeader.Size, mimeType)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + err.Error()})
+	if err := utils.CompressAndSaveImage(file, compressedPath, 75); err == nil {
+		file.Close()
+		compFile, err := os.Open(compressedPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuka gambar terkompresi"})
+			return
+		}
+		defer compFile.Close()
+		stat, _ := compFile.Stat()
+		aiResponse, aiErr = utils.AnalyzeImageWithGemini(compFile, stat.Size(), "image/jpeg")
+	} else {
+		file.Close()
+		fileName = baseName + "_" + strconv.FormatInt(time.Now().Unix(), 10) + origExt
+		imageURL = "/uploads/" + fileName
+		if err := c.SaveUploadedFile(fileHeader, "uploads/"+fileName); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan gambar"})
+			return
+		}
+		origFile, err := fileHeader.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuka gambar"})
+			return
+		}
+		defer origFile.Close()
+		aiResponse, aiErr = utils.AnalyzeImageWithGemini(origFile, fileHeader.Size, mimeType)
+	}
+
+	if aiErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI Error: " + aiErr.Error()})
 		return
 	}
 
