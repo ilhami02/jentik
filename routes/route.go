@@ -73,11 +73,21 @@ func SetupRouter() *gin.Engine {
 
 		admin := v1.Group("/admin", middlewares.AuthMiddleware(), middlewares.RoleMiddleware("admin"))
 		{
+		admin.GET("/dashboard", controllers.AdminGetDashboard)
 			admin.GET("/reports/pending", controllers.GetPendingReports)
 			admin.PUT("/reports/:id/verify", controllers.VerifyReport)
 			admin.GET("/notifications/stream", controllers.StreamNotifications)
 			// new EventSource('https://gdgoc.skyibe.my.id/api/v1/admin/stream?token=' + token)
 			admin.POST("/interventions", controllers.CreateIntervention)
+
+			// District Management (Wilayah & Area Jentik)
+			admin.GET("/districts/summary", controllers.GetDistrictSummary)
+			admin.GET("/districts", controllers.GetAllDistricts)
+			admin.GET("/districts/search", controllers.SearchDistricts)
+			admin.GET("/districts/unassigned-count", controllers.GetReportsUnassignedCount)
+			admin.POST("/districts", controllers.CreateDistrict)
+			admin.POST("/districts/reassign", controllers.ReassignReportsToDistricts)
+			admin.DELETE("/districts/:id", controllers.DeleteDistrict)
 
 			// User Management
 			admin.GET("/users", controllers.AdminGetUsers)

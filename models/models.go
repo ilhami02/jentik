@@ -42,6 +42,7 @@ type User struct {
 type Report struct {
 	ID            uint           `gorm:"primaryKey"`
 	UserID        *uint          `gorm:"default:null"`
+	DistrictID    *uint          `gorm:"default:null"`
 	JenisLaporan  string         `gorm:"type:varchar(50);not null"`
 	ImageURL      string         `gorm:"type:text;not null"`
 	Deskripsi     string         `gorm:"type:text"`
@@ -61,5 +62,13 @@ type Intervention struct {
 	RadiusArea       float64   `gorm:"not null"`
 	Tanggal          time.Time `gorm:"not null"`
 	CreatedAt        time.Time
+}
+
+type District struct {
+	ID        uint           `gorm:"primaryKey"`
+	Nama      string         `gorm:"size:150;not null;unique"`
+	Geometry  string         `gorm:"type:geometry(Polygon, 4326)" json:"-"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 

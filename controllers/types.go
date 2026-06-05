@@ -69,3 +69,31 @@ type VerifyRequest struct {
 	Status  string `json:"status" binding:"required"`
 	Catatan string `json:"catatan"`
 }
+
+// District Types
+type CreateDistrictRequest struct {
+	Nama        string    `json:"nama" binding:"required"`
+	Coordinates [][]float64 `json:"coordinates" binding:"required"`
+	// coordinates: [[lat, lng], [lat, lng], ...] polygon ring (minimal 4 points, first = last)
+}
+
+type DistrictDetailResponse struct {
+	ID      uint   `json:"id"`
+	Nama    string `json:"nama"`
+	Rawan   int64  `json:"rawan"`
+	Waspada int64  `json:"waspada"`
+	Aman    int64  `json:"aman"`
+}
+
+type DistrictCountResponse struct {
+	Rawan   int64 `json:"rawan"`
+	Waspada int64 `json:"waspada"`
+	Aman    int64 `json:"aman"`
+}
+
+type DashboardResponse struct {
+	TotalWarga        int64 `json:"total_warga"`
+	KaderAktif        int64 `json:"kader_aktif"`
+	LaporanPending    int64 `json:"laporan_pending"`
+	NotifikasiDarurat int64 `json:"notifikasi_darurat"`
+}
